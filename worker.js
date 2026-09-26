@@ -1,6 +1,6 @@
 const UPSTREAMS = {
-  okx: "wss://ws.okx.com:8443/ws/v5/public",
-  kraken: "wss://ws.kraken.com/v2"
+  okx: "https://ws.okx.com:8443/ws/v5/public",
+  kraken: "https://ws.kraken.com/v2"
 };
 
 export default {
