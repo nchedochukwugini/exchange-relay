@@ -1,7 +1,8 @@
 const UPSTREAMS = {
   okx: "https://ws.okx.com:8443/ws/v5/public",
   kraken: "https://ws.kraken.com/v2",
-  kraken_futures: "https://futures.kraken.com/ws/v1"
+  kraken_futures: "https://futures.kraken.com/ws/v1",
+  coinbase_futures: "https://advanced-trade-ws.coinbase.com"
 };
 
 export default {
@@ -16,7 +17,7 @@ export default {
     const upstreamUrl = UPSTREAMS[exchange];
 
     if (!upstreamUrl) {
-      return new Response("Invalid exchange. Use ?exchange=okx, ?exchange=kraken, or ?exchange=kraken_futures", {
+      return new Response("Invalid exchange. Use ?exchange=okx, ?exchange=kraken, ?exchange=kraken_futures, or ?exchange=coinbase_futures", {
         status: 400
       });
     }
