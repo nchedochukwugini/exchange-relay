@@ -1,196 +1,121 @@
 const UPSTREAMS = {
-  okx: "https://ws.okx.com:8443/ws/v5/public",
-  kraken: "https://ws.kraken.com/v2"
-};
+  okx_spot: "wss://ws.okx.com:8443/ws/v5/public",
+  okx_futures: "wss://ws.okx.com:8443/ws/v5/public",
 
-const CONNECT_TIMEOUT_MS = 10000;
+  kraken_spot: "wss://ws.kraken.com/v2",
+  kraken_futures: "wss://futures.kraken.com/ws/v1"
+};
 
 export default {
   async fetch(request) {
-    const upgrade = request.headers.get("Upgrade");
-
-    console.log("Incoming request", {
-      method: request.method,
-      upgrade,
-      url: request.url
-    });
-
-    if (upgrade !== "websocket") {
+    if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", {
         status: 426
       });
     }
 
-    const requestUrl = new URL(request.url);
-    const exchange = requestUrl.searchParams.get("exchange");
-
-    console.log("Requested exchange:", exchange);
+    const url = new URL(request.url);
+    const exchange = url.searchParams.get("exchange");
 
     const upstreamUrl = UPSTREAMS[exchange];
 
     if (!upstreamUrl) {
       return new Response(
-        "Invalid exchange. Use ?exchange=okx or ?exchange=kraken",
+        "Invalid exchange. Use okx_spot, okx_futures, kraken_spot, or kraken_futures",
         { status: 400 }
       );
     }
 
     const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
+    const [client, server] = Object.values(pair);
 
-    server.accept({
-      allowHalfOpen: true
-    });
+    server.accept({ allowHalfOpen: true });
 
-    console.log("Client WebSocket accepted");
-
-    const controller = new AbortController();
-
-    const timeout = setTimeout(() => {
-      console.log(
-        `Upstream ${exchange} connection timed out after ${CONNECT_TIMEOUT_MS}ms`
-      );
-
-      controller.abort();
-    }, CONNECT_TIMEOUT_MS);
-
-    let response;
+    let upstreamResponse;
 
     try {
-      console.log("Connecting to upstream:", upstreamUrl);
-
-      response = await fetch(upstreamUrl, {
-        method: "GET",
+      upstreamResponse = await fetch(upstreamUrl, {
         headers: {
           Upgrade: "websocket"
-        },
-        signal: controller.signal
+        }
       });
-
-      clearTimeout(timeout);
-
-      console.log("Upstream response:", response.status);
-
     } catch (error) {
-      clearTimeout(timeout);
-
-      console.log("Upstream connection error:", {
-        name: error?.name,
-        message: error?.message
-      });
-
-      try {
-        server.close(1011, "Upstream connection failed");
-      } catch {}
+      server.close(1011, "Upstream connection failed");
 
       return new Response(
-        `Upstream ${exchange} connection failed: ${error?.message ?? "unknown error"}`,
-        {
-          status: 502
-        }
+        "Upstream connection failed: " + error.message,
+        { status: 502 }
       );
     }
 
-    const upstream = response.webSocket;
+    const upstream = upstreamResponse.webSocket;
 
     if (!upstream) {
-      console.log(
-        "Upstream did not provide a WebSocket. HTTP status:",
-        response.status
-      );
-
-      try {
-        server.close(1011, "Upstream did not accept WebSocket");
-      } catch {}
+      server.close(1011, "Upstream did not accept WebSocket");
 
       return new Response(
-        `Upstream did not accept WebSocket. Status: ${response.status}`,
-        {
-          status: 502
-        }
+        "Upstream did not accept WebSocket",
+        { status: 502 }
       );
     }
 
-    console.log("Upstream WebSocket obtained");
-
-    upstream.accept({
-      allowHalfOpen: true
-    });
-
-    console.log("Upstream WebSocket accepted");
+    upstream.accept({ allowHalfOpen: true });
 
     server.addEventListener("message", event => {
-      console.log("Client -> upstream message");
-
       try {
         if (upstream.readyState === WebSocket.OPEN) {
           upstream.send(event.data);
         }
-      } catch (error) {
-        console.log("Client -> upstream error:", error.message);
-      }
+      } catch {}
     });
 
     upstream.addEventListener("message", event => {
-      console.log("Upstream -> client message");
-
       try {
         if (server.readyState === WebSocket.OPEN) {
           server.send(event.data);
         }
-      } catch (error) {
-        console.log("Upstream -> client error:", error.message);
-      }
+      } catch {}
     });
 
     server.addEventListener("close", event => {
-      console.log(
-        "Client closed:",
-        event.code,
-        event.reason || ""
-      );
-
       try {
-        upstream.close(
-          event.code || 1000,
-          event.reason || ""
-        );
+        if (
+          upstream.readyState === WebSocket.OPEN ||
+          upstream.readyState === WebSocket.CLOSING
+        ) {
+          upstream.close(
+            event.code || 1000,
+            event.reason || ""
+          );
+        }
       } catch {}
     });
 
     upstream.addEventListener("close", event => {
-      console.log(
-        "Upstream closed:",
-        event.code,
-        event.reason || ""
-      );
-
       try {
-        server.close(
-          event.code || 1000,
-          event.reason || ""
-        );
+        if (
+          server.readyState === WebSocket.OPEN ||
+          server.readyState === WebSocket.CLOSING
+        ) {
+          server.close(
+            event.code || 1000,
+            event.reason || ""
+          );
+        }
       } catch {}
     });
 
-    server.addEventListener("error", event => {
-      console.log("Client WebSocket error");
-
+    server.addEventListener("error", () => {
       try {
         upstream.close(1011, "Client socket error");
       } catch {}
     });
 
-    upstream.addEventListener("error", event => {
-      console.log("Upstream WebSocket error");
-
+    upstream.addEventListener("error", () => {
       try {
         server.close(1011, "Upstream socket error");
       } catch {}
     });
-
-    console.log("Relay established successfully");
 
     return new Response(null, {
       status: 101,
