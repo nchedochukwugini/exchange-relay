@@ -54,20 +54,35 @@ export default {
 
     upstream.accept({ allowHalfOpen: true });
 
-    server.addEventListener("message", event => {
+    async function forwardMessage(socket, data) {
       try {
-        if (upstream.readyState === WebSocket.OPEN) {
-          upstream.send(event.data);
+        if (socket.readyState !== WebSocket.OPEN) return;
+
+        if (typeof data === "string") {
+          socket.send(data);
+          return;
         }
+
+        if (data instanceof ArrayBuffer) {
+          socket.send(data);
+          return;
+        }
+
+        if (data instanceof Blob) {
+          socket.send(await data.arrayBuffer());
+          return;
+        }
+
+        socket.send(data);
       } catch {}
+    }
+
+    server.addEventListener("message", event => {
+      forwardMessage(upstream, event.data);
     });
 
     upstream.addEventListener("message", event => {
-      try {
-        if (server.readyState === WebSocket.OPEN) {
-          server.send(event.data);
-        }
-      } catch {}
+      forwardMessage(server, event.data);
     });
 
     server.addEventListener("close", event => {
