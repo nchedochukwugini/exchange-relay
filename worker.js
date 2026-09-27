@@ -24,6 +24,7 @@ export default {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
+    server.binaryType = "arraybuffer";
     server.accept({ allowHalfOpen: true });
 
     let upstreamResponse;
@@ -52,6 +53,7 @@ export default {
       );
     }
 
+    upstream.binaryType = "arraybuffer";
     upstream.accept({ allowHalfOpen: true });
 
     async function forwardMessage(socket, data) {
