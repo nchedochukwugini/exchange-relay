@@ -5,6 +5,31 @@ const UPSTREAMS = {
   coinbase_futures: "https://advanced-trade-ws.coinbase.com"
 };
 
+async function getKucoinWebSocketUrl(type) {
+  const endpoint =
+    type === "spot"
+      ? "https://api.kucoin.com/api/v1/bullet-public"
+      : "https://api-futures.kucoin.com/api/v1/bullet-public";
+
+  const response = await fetch(endpoint, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    throw new Error(`KuCoin token HTTP ${response.status}`);
+  }
+
+  const json = await response.json();
+  const data = json?.data;
+  const server = data?.instanceServers?.[0];
+
+  if (!data?.token || !server?.endpoint) {
+    throw new Error("KuCoin token response missing server");
+  }
+
+  return `${server.endpoint}?token=${encodeURIComponent(data.token)}`;
+}
+
 export default {
   async fetch(request) {
     if (request.headers.get("Upgrade") !== "websocket") {
@@ -14,12 +39,35 @@ export default {
     const url = new URL(request.url);
     const exchange = url.searchParams.get("exchange");
 
-    const upstreamUrl = UPSTREAMS[exchange];
+    let upstreamUrl;
+
+    if (exchange === "kucoin_spot") {
+      try {
+        upstreamUrl = await getKucoinWebSocketUrl("spot");
+      } catch (error) {
+        return new Response(
+          "KuCoin spot bootstrap failed: " + error.message,
+          { status: 502 }
+        );
+      }
+    } else if (exchange === "kucoin_futures") {
+      try {
+        upstreamUrl = await getKucoinWebSocketUrl("futures");
+      } catch (error) {
+        return new Response(
+          "KuCoin futures bootstrap failed: " + error.message,
+          { status: 502 }
+        );
+      }
+    } else {
+      upstreamUrl = UPSTREAMS[exchange];
+    }
 
     if (!upstreamUrl) {
-      return new Response("Invalid exchange. Use ?exchange=okx, ?exchange=kraken, ?exchange=kraken_futures, or ?exchange=coinbase_futures", {
-        status: 400
-      });
+      return new Response(
+        "Invalid exchange",
+        { status: 400 }
+      );
     }
 
     const pair = new WebSocketPair();
@@ -37,18 +85,20 @@ export default {
       });
     } catch (error) {
       server.close(1011, "Upstream connection failed");
-      return new Response("Could not connect to upstream: " + error.message, {
-        status: 502
-      });
+      return new Response(
+        "Could not connect to upstream: " + error.message,
+        { status: 502 }
+      );
     }
 
     const upstream = upstreamResponse.webSocket;
 
     if (!upstream) {
       server.close(1011, "Upstream did not accept WebSocket");
-      return new Response("Upstream did not accept WebSocket", {
-        status: 502
-      });
+      return new Response(
+        "Upstream did not accept WebSocket",
+        { status: 502 }
+      );
     }
 
     upstream.accept({ allowHalfOpen: true });
@@ -75,7 +125,10 @@ export default {
           upstream.readyState === WebSocket.OPEN ||
           upstream.readyState === WebSocket.CLOSING
         ) {
-          upstream.close(event.code || 1000, event.reason || "");
+          upstream.close(
+            event.code || 1000,
+            event.reason || ""
+          );
         }
       } catch {}
     });
@@ -86,7 +139,10 @@ export default {
           server.readyState === WebSocket.OPEN ||
           server.readyState === WebSocket.CLOSING
         ) {
-          server.close(event.code || 1000, event.reason || "");
+          server.close(
+            event.code || 1000,
+            event.reason || ""
+          );
         }
       } catch {}
     });
