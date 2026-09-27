@@ -2,33 +2,10 @@ const UPSTREAMS = {
   okx: "https://ws.okx.com:8443/ws/v5/public",
   kraken: "https://ws.kraken.com/v2",
   kraken_futures: "https://futures.kraken.com/ws/v1",
-  coinbase_futures: "https://advanced-trade-ws.coinbase.com"
+  coinbase_futures: "https://advanced-trade-ws.coinbase.com",
+  kucoin_spot: "https://x-push-spot.kucoin.com",
+  kucoin_futures: "https://x-push-futures.kucoin.com"
 };
-
-async function getKucoinWebSocketUrl(type) {
-  const endpoint =
-    type === "spot"
-      ? "https://api.kucoin.com/api/v1/bullet-public"
-      : "https://api-futures.kucoin.com/api/v1/bullet-public";
-
-  const response = await fetch(endpoint, {
-    method: "POST"
-  });
-
-  if (!response.ok) {
-    throw new Error(`KuCoin token HTTP ${response.status}`);
-  }
-
-  const json = await response.json();
-  const data = json?.data;
-  const server = data?.instanceServers?.[0];
-
-  if (!data?.token || !server?.endpoint) {
-    throw new Error("KuCoin token response missing server");
-  }
-
-  return `${server.endpoint}?token=${encodeURIComponent(data.token)}`;
-}
 
 export default {
   async fetch(request) {
@@ -38,36 +15,10 @@ export default {
 
     const url = new URL(request.url);
     const exchange = url.searchParams.get("exchange");
-
-    let upstreamUrl;
-
-    if (exchange === "kucoin_spot") {
-      try {
-        upstreamUrl = await getKucoinWebSocketUrl("spot");
-      } catch (error) {
-        return new Response(
-          "KuCoin spot bootstrap failed: " + error.message,
-          { status: 502 }
-        );
-      }
-    } else if (exchange === "kucoin_futures") {
-      try {
-        upstreamUrl = await getKucoinWebSocketUrl("futures");
-      } catch (error) {
-        return new Response(
-          "KuCoin futures bootstrap failed: " + error.message,
-          { status: 502 }
-        );
-      }
-    } else {
-      upstreamUrl = UPSTREAMS[exchange];
-    }
+    const upstreamUrl = UPSTREAMS[exchange];
 
     if (!upstreamUrl) {
-      return new Response(
-        "Invalid exchange",
-        { status: 400 }
-      );
+      return new Response("Invalid exchange", { status: 400 });
     }
 
     const pair = new WebSocketPair();
